@@ -24,6 +24,10 @@ export const listGames = createServerFn({ method: "GET" })
       return { ok: false as const, error: detail("GET /games failed", res), games: [], pageCount: 0, total: 0 };
     }
     const body = res.body as { items?: SlotegratorGame[]; _meta?: { pageCount?: number; totalCount?: number } };
+    if (body.items?.length) {
+      const { rememberGames } = await import("./filedb.server");
+      await rememberGames(body.items);
+    }
     return {
       ok: true as const,
       error: null,
@@ -192,3 +196,58 @@ export const adminApiCheck = createServerFn({ method: "POST" })
     }
     return { status: res.status, ok: res.ok, body: JSON.stringify(body, null, 2).slice(0, 4000) };
   });
+
+// ---------- Callback diagnostics ----------
+export const adminCallbackLog = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireAdmin } = await import("./auth.server");
+  const { callbackLogFile, readCallbackLog } = await import("./filedb.server");
+  await requireAdmin();
+  return { file: callbackLogFile(), entries: JSON.parse(JSON.stringify(await readCallbackLog(50))) as Record<string, string>[] };
+});
+
+/** Sends a correctly signed "balance" call to this site's own public callback address, like Slotegrator would. */
+export const adminCallbackTest = createServerFn({ method: "POST" }).handler(async () => {
+  const { requireAdmin } = await import("./auth.server");
+  const { getRequestHeader } = await import("@tanstack/react-start/server");
+  const { signedHeaders } = await import("./slotegrator-core");
+  const admin = await requireAdmin();
+  const cfg = slotegratorConfig();
+  if (!cfg) return { ok: false, detail: "Slotegrator settings are missing in .env" };
+  const origin = getRequestHeader("origin") ?? "";
+  if (!/^https?:\/\/[^/]+$/.test(origin)) return { ok: false, detail: `Could not read this site's address (Origin header: "${origin}")` };
+  const url = `${origin}/api/public/slotegrator/callback`;
+  const params = { action: "balance", player_id: admin.id, currency: cfg.currency, session_id: "admin-test" };
+  const headers = await signedHeaders(cfg, params);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params).toString(),
+    });
+    const text = await res.text();
+    const ok = res.ok && !text.includes("error_code");
+    return { ok, detail: `POST ${url}\nHTTP ${res.status}\nResponse: ${text.slice(0, 2000)}\nYour balance on file: ${admin.balance}` };
+  } catch (e) {
+    return { ok: false, detail: `POST ${url}\nNetwork error: ${(e as Error).message}\nThe server could not reach its own public address. Slotegrator will not reach it either.` };
+  }
+});
+
+// ---------- Admin dashboard ----------
+export const adminStats = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireAdmin } = await import("./auth.server");
+  const { readDb, readGames } = await import("./filedb.server");
+  const { summarize } = await import("./admin-stats");
+  await requireAdmin();
+  const [db, games] = await Promise.all([readDb(), readGames()]);
+  return { ...summarize(db.users, db.transactions, games), knownGames: Object.keys(games).length };
+});
+
+/** Slotegrator merchant limits/balance (GET /limits), parsed for display. */
+export const adminLimits = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireAdmin } = await import("./auth.server");
+  await requireAdmin();
+  if (!slotegratorConfig()) return { ok: false as const, error: "Slotegrator settings are missing in .env", json: "" };
+  const res = await slotegratorRequest("GET", "/limits");
+  if (!res.ok) return { ok: false as const, error: detail("GET /limits failed", res), json: "" };
+  return { ok: true as const, error: null, json: JSON.stringify(res.body ?? null) };
+});

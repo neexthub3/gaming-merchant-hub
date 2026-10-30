@@ -17,3 +17,5 @@
 - The database path comes only from server config, never from a request URL, to prevent reading arbitrary server files.
 - Sign-in uses an httpOnly session cookie (`src/lib/auth.server.ts`); admin checks happen server-side in every admin server function; first admin requires `ADMIN_SETUP_CODE` from the server env and only works while no admin exists. No fixed admin credentials.
 - Errors shown to users carry full detail through `ErrorDetails` with a copy button.
+- Every Slotegrator wallet callback and our reply is appended to `$DATA_DIR/callbacks.log` (JSON lines, auto-trimmed) and shown on the admin page — the only way to diagnose in-game balance problems on the VPS.
+- Game uuid → provider names are cached in `$DATA_DIR/games.json` whenever the game list loads, so admin stats can group bets/wins by provider; money summaries live in pure `src/lib/admin-stats.ts` (unit-tested).

@@ -11,9 +11,7 @@ import { slotegratorConfig } from "@/lib/slotegrator-core";
 
 // Seamless-wallet endpoint Slotegrator calls for balance / bet / win / refund / rollback.
 // Give Slotegrator this URL: https://<your-domain>/api/public/slotegrator/callback
-
-const fail = (code: "INSUFFICIENT_FUNDS" | "INTERNAL_ERROR", description: string) =>
-  Response.json({ error_code: code, error_description: description });
+// Every call and our answer is written to data/callbacks.log (visible on the admin page).
 
 const amount = z.coerce.number().min(0).max(1e9);
 const playerId = z.string().uuid();
@@ -24,43 +22,82 @@ export const Route = createFileRoute("/api/public/slotegrator/callback")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const cfg = slotegratorConfig();
-        if (!cfg) return fail("INTERNAL_ERROR", "Server not configured");
-
+        const started = Date.now();
+        const { logCallback } = await import("@/lib/filedb.server");
         const raw = await request.text();
-        const isJson = (request.headers.get("content-type") ?? "").includes("json");
-        let body: Record<string, unknown>;
+        const contentType = request.headers.get("content-type") ?? "";
+        const ip =
+          request.headers.get("x-real-ip") ??
+          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+          "";
+        let body: Record<string, unknown> = {};
+        const meta: Record<string, unknown> = {};
+
+        const reply = async (out: Record<string, unknown>, reason?: string) => {
+          const action = String(body["action"] ?? "");
+          const entry = {
+            action,
+            player_id: body["player_id"] ?? null,
+            ok: !out["error_code"],
+            reason: reason ?? null,
+            response: out,
+            request: body,
+            ip,
+            contentType,
+            ms: Date.now() - started,
+            ...meta,
+          };
+          console.log(
+            `[slotegrator-callback] ${action || "?"} player=${String(body["player_id"] ?? "-")} -> ${JSON.stringify(out)}${reason ? ` (${reason})` : ""}`,
+          );
+          await logCallback(entry);
+          return Response.json(out);
+        };
+        const fail = (code: "INSUFFICIENT_FUNDS" | "INTERNAL_ERROR", description: string, reason?: string) =>
+          reply({ error_code: code, error_description: description }, reason ?? description);
+
+        const cfg = slotegratorConfig();
+        if (!cfg) return fail("INTERNAL_ERROR", "Server not configured", "SLOTEGRATOR_* values missing in .env");
+
         try {
-          body = isJson ? JSON.parse(raw || "{}") : parseFormBody(raw);
+          body = contentType.includes("json") ? JSON.parse(raw || "{}") : parseFormBody(raw);
         } catch {
-          return fail("INTERNAL_ERROR", "Bad body");
+          meta["rawBody"] = raw.slice(0, 2000);
+          return fail("INTERNAL_ERROR", "Bad body", "Request body could not be parsed");
         }
 
         const merchantId = request.headers.get("X-Merchant-Id") ?? "";
         const timestamp = request.headers.get("X-Timestamp") ?? "";
         const nonce = request.headers.get("X-Nonce") ?? "";
         const sign = (request.headers.get("X-Sign") ?? "").toLowerCase();
-        if (!safeEqual(merchantId, cfg.merchantId)) return fail("INTERNAL_ERROR", "Wrong merchant");
-        if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 60) {
-          return fail("INTERNAL_ERROR", "Request expired");
+        if (!safeEqual(merchantId, cfg.merchantId)) {
+          return fail("INTERNAL_ERROR", "Wrong merchant", `X-Merchant-Id "${merchantId}" does not match SLOTEGRATOR_MERCHANT_ID in .env`);
         }
-        const expected = await hmacSha1Hex(
-          cfg.merchantKey,
-          buildSignString({
-            ...(body as Record<string, string>),
-            "X-Merchant-Id": merchantId,
-            "X-Timestamp": timestamp,
-            "X-Nonce": nonce,
-          }),
-        );
-        if (!safeEqual(sign, expected)) return fail("INTERNAL_ERROR", "Invalid signature");
+        const drift = Math.round(Date.now() / 1000 - Number(timestamp));
+        meta["clockDriftSeconds"] = drift;
+        if (!Number.isFinite(drift) || Math.abs(drift) > 60) {
+          return fail("INTERNAL_ERROR", "Request expired", `X-Timestamp ${timestamp} is ${drift}s away from server clock (limit 60s) — fix the VPS clock (timedatectl set-ntp true)`);
+        }
+        const signString = buildSignString({
+          ...(body as Record<string, string>),
+          "X-Merchant-Id": merchantId,
+          "X-Timestamp": timestamp,
+          "X-Nonce": nonce,
+        });
+        const expected = await hmacSha1Hex(cfg.merchantKey, signString);
+        if (!safeEqual(sign, expected)) {
+          meta["signReceived"] = sign;
+          meta["signExpected"] = expected;
+          meta["signString"] = signString.slice(0, 2000);
+          return fail("INTERNAL_ERROR", "Invalid signature", "X-Sign does not match — SLOTEGRATOR_MERCHANT_KEY in .env is probably wrong or outdated");
+        }
 
         const wallet = await import("@/lib/wallet.server");
         const action = String(body["action"] ?? "");
 
         try {
           const pid = playerId.safeParse(body["player_id"]);
-          if (!pid.success) return fail("INTERNAL_ERROR", "Player not found");
+          if (!pid.success) return fail("INTERNAL_ERROR", "Player not found", `player_id "${String(body["player_id"])}" is not a valid player id`);
 
           let result: Record<string, unknown> | null = null;
           if (action === "balance") {
@@ -103,20 +140,23 @@ export const Route = createFileRoute("/api/public/slotegrator/callback")({
               session: p.session_id ?? "",
             });
           } else {
-            return fail("INTERNAL_ERROR", "Unknown action");
+            return fail("INTERNAL_ERROR", "Unknown action", `Unknown action "${action}"`);
           }
 
           if (result?.["error"] === "INSUFFICIENT_FUNDS") {
             return fail("INSUFFICIENT_FUNDS", "Not enough money to continue playing");
           }
-          if (result?.["error"]) return fail("INTERNAL_ERROR", String(result["error"]));
-          const out: Record<string, unknown> = { balance: Number(result?.["balance"] ?? 0) };
+          if (result?.["error"]) {
+            const { dbFile } = await import("@/lib/filedb.server");
+            return fail("INTERNAL_ERROR", String(result["error"]), `${String(result["error"])} — looked in ${dbFile()}`);
+          }
+          const out: Record<string, unknown> = { balance: Number(Number(result?.["balance"] ?? 0).toFixed(2)) };
           if (result?.["transaction_id"]) out["transaction_id"] = result["transaction_id"];
           if (result?.["rollback_transactions"]) out["rollback_transactions"] = result["rollback_transactions"];
-          return Response.json(out);
+          return reply(out);
         } catch (e) {
           console.error("Slotegrator callback error", action, e);
-          return fail("INTERNAL_ERROR", "Internal error");
+          return fail("INTERNAL_ERROR", "Internal error", `${(e as Error).message}`);
         }
       },
     },
