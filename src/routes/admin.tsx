@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { adminPlayers, adminAdjustBalance, adminInfo, adminApiCheck, claimAdmin } from "@/lib/slotegrator.functions";
+import { adminPlayers, adminAdjustBalance, adminInfo, adminApiCheck, claimAdmin, adminCallbackLog, adminCallbackTest } from "@/lib/slotegrator.functions";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -49,6 +49,7 @@ function AdminPage() {
           <>
             <StorageInfo />
             <CallbackUrl />
+            <CallbackLog />
             <ApiChecks />
             <BalancePanel />
           </>
@@ -263,6 +264,66 @@ function CallbackUrl() {
         <code className="flex-1 break-all rounded bg-muted px-3 py-2 text-sm">{url}</code>
         <Button variant="outline" onClick={() => { navigator.clipboard.writeText(url); toast.success("Copied"); }}>Copy</Button>
       </div>
+    </section>
+  );
+}
+
+function CallbackLog() {
+  const load = useServerFn(adminCallbackLog);
+  const test = useServerFn(adminCallbackTest);
+  const { data, error, refetch, isFetching } = useQuery({ queryKey: ["callback-log"], queryFn: () => load(), refetchInterval: 10_000 });
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; detail: string } | null>(null);
+  const text = data ? data.entries.map((e) => JSON.stringify(e, null, 2)).join("\n\n") : "";
+  return (
+    <section className="space-y-3 rounded-xl border bg-card p-5">
+      <h2 className="text-xl font-semibold">Game balance requests from Slotegrator</h2>
+      <p className="text-sm text-muted-foreground">
+        Every time a game asks for a player's balance or sends a bet/win, it shows here with the answer the site gave. If this list stays empty while a game is open, Slotegrator is not reaching your callback URL.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="gold"
+          disabled={testing}
+          onClick={async () => {
+            setTesting(true);
+            try {
+              setTestResult(await test());
+            } catch (e) {
+              setTestResult({ ok: false, detail: errorText(e) });
+            } finally {
+              setTesting(false);
+              void refetch();
+            }
+          }}
+        >
+          {testing && <Loader2 className="animate-spin" />}Test callback (my balance)
+        </Button>
+        <Button variant="outline" disabled={isFetching} onClick={() => refetch()}>
+          {isFetching && <Loader2 className="animate-spin" />}Refresh
+        </Button>
+        {text && (
+          <Button variant="outline" onClick={() => { navigator.clipboard.writeText(text); toast.success("Copied"); }}>Copy all</Button>
+        )}
+      </div>
+      {testResult &&
+        (testResult.ok ? (
+          <pre className="whitespace-pre-wrap rounded bg-muted p-3 text-xs">Callback works{"\n"}{testResult.detail}</pre>
+        ) : (
+          <ErrorDetails title="Callback test failed" detail={testResult.detail} onClose={() => setTestResult(null)} />
+        ))}
+      {error && <ErrorDetails title="Callback log could not be read" detail={errorText(error)} />}
+      {data && <p className="break-all text-xs text-muted-foreground">Log file: {data.file}</p>}
+      {data && data.entries.length === 0 && <p className="text-sm">No requests received yet.</p>}
+      {data && data.entries.length > 0 && (
+        <div className="max-h-[32rem] space-y-2 overflow-auto">
+          {data.entries.map((e, i) => (
+            <pre key={i} className={`whitespace-pre-wrap break-all rounded border p-3 text-xs ${e["ok"] ? "bg-muted" : "border-destructive bg-destructive/10"}`}>
+              {JSON.stringify(e, null, 2)}
+            </pre>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
