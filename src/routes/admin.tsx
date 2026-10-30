@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Plus, Minus, ShieldCheck, Search } from "lucide-react";
 import { toast } from "sonner";
 import { usePlayer, useSession } from "@/hooks/use-player";
@@ -35,7 +35,7 @@ function AdminPage() {
       <div className="flex items-center gap-3"><ShieldCheck className="text-primary" /><h1 className="font-display text-3xl text-gold">Administrator</h1></div>
       {!ready || (session && isPending) ? <Loader2 className="animate-spin" aria-label="Loading" /> : !session ?
         <Button variant="gold" onClick={() => setAuthOpen(true)}>Sign in</Button> : player?.isAdmin ?
-        <BalancePanel /> : <AdminSetup />}
+        <><CallbackUrl /><BalancePanel /></> : <AdminSetup />}
       <Link to="/" className="inline-block text-sm text-muted-foreground">Back to games</Link>
     </main>
   </div>;
@@ -108,5 +108,18 @@ function BalancePanel() {
         <Button variant="gold" className="w-full" disabled={busy}>{busy && <Loader2 className="animate-spin" />}Confirm adjustment</Button>
       </form>
     </DialogContent></Dialog>
+  </section>;
+}
+/** Shows the wallet callback address for whatever domain this site is opened on. */
+function CallbackUrl() {
+  const [url, setUrl] = useState("");
+  useEffect(() => setUrl(`${window.location.origin}/api/public/slotegrator/callback`), []);
+  return <section className="space-y-2 rounded-xl border bg-card p-5">
+    <h2 className="text-xl font-semibold">Slotegrator callback URL</h2>
+    <p className="text-sm text-muted-foreground">Give this address to Slotegrator. It follows your current domain automatically.</p>
+    <div className="flex gap-2">
+      <code className="flex-1 break-all rounded bg-muted px-3 py-2 text-sm">{url}</code>
+      <Button variant="outline" onClick={() => navigator.clipboard.writeText(url)}>Copy</Button>
+    </div>
   </section>;
 }
