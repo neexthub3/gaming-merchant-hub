@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
