@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { Link, useRouter } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut, Wallet } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -27,6 +27,8 @@ export function SiteHeader({
   const { session, ready } = useSession();
   const { data: player } = usePlayer(session?.user.id);
   const currency = useCurrency();
+  const client = useQueryClient();
+  const router = useRouter();
 
   return (
     <nav className="sticky top-0 z-40 border-b bg-overlay backdrop-blur">
@@ -41,13 +43,17 @@ export function SiteHeader({
               <span className="font-semibold">{formatMoney(player?.balance ?? 0, currency)}</span>
             </div>
             <span className="hidden text-sm text-muted-foreground sm:inline">{player?.username}</span>
-            <Button variant="ghost" size="icon" aria-label="লগআউট" onClick={() => supabase.auth.signOut()}>
+            <Link to="/admin" className="text-sm text-primary">{player?.isAdmin ? "Admin" : "Admin setup"}</Link>
+            <Button variant="ghost" size="icon" aria-label="Sign out" onClick={async () => {
+              await client.cancelQueries(); client.clear(); await supabase.auth.signOut();
+              await router.navigate({ to: "/", replace: true });
+            }}>
               <LogOut />
             </Button>
           </div>
         ) : (
           <Button variant="gold" size="sm" onClick={() => setAuthOpen(true)}>
-            লগইন / রেজিস্টার
+            Sign in / Register
           </Button>
         )}
       </div>

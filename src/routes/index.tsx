@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Loader2, Play, Search, X } from "lucide-reac
 import heroImg from "@/assets/hero.jpg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SiteHeader } from "@/components/SiteHeader";
 import { initDemo, listGames } from "@/lib/slotegrator.functions";
 import type { SlotegratorGame } from "@/lib/slotegrator-shared";
 
@@ -24,12 +25,15 @@ export const Route = createFileRoute("/")({
       { name: "description", content: "শত শত ক্যাসিনো গেম ফ্রি ডেমো মোডে খেলুন। কোনো টাকা লাগবে না।" },
       { property: "og:title", content: "গোল্ডেন রিলস — ফ্রি ডেমো স্লট গেম" },
       { property: "og:description", content: "শত শত ক্যাসিনো গেম ফ্রি ডেমো মোডে খেলুন। কোনো টাকা লাগবে না।" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Index,
 });
 
 function Index() {
+  const [authOpen, setAuthOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState<string | null>(null);
@@ -73,6 +77,7 @@ function Index() {
 
   return (
     <div className="min-h-screen">
+      <SiteHeader authOpen={authOpen} setAuthOpen={setAuthOpen} />
       <header className="relative overflow-hidden border-b">
         <img
           src={heroImg}
