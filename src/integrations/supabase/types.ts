@@ -160,6 +160,7 @@ export type Database = {
         Args: { p_secret: string; p_user: string }
         Returns: undefined
       }
+      claim_first_admin: { Args: { p_user: string }; Returns: undefined }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

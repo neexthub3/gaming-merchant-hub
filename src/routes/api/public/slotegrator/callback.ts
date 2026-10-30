@@ -118,10 +118,10 @@ export const Route = createFileRoute("/api/public/slotegrator/callback")({
           if (result?.["error"] === "INSUFFICIENT_FUNDS") {
             return fail("INSUFFICIENT_FUNDS", "Not enough money to continue playing");
           }
-          if (result?.["error"]) return fail("INTERNAL_ERROR", String(result.error));
+          if (result?.["error"]) return fail("INTERNAL_ERROR", String(result["error"]));
           const out: Record<string, unknown> = { balance: Number(result?.["balance"] ?? 0) };
           if (result?.["transaction_id"]) out["transaction_id"] = result["transaction_id"];
-          if (result?.["rollback_transactions"]) out["rollback_transactions"] = result.rollback_transactions;
+          if (result?.["rollback_transactions"]) out["rollback_transactions"] = result["rollback_transactions"];
           return Response.json(out);
         } catch (e) {
           console.error("Slotegrator callback error", action, e);

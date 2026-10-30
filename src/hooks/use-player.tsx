@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
       if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "USER_UPDATED") {
-        if (event === "SIGNED_OUT") queryClient.removeQueries({ queryKey: ["player"] });
+        if (event === "SIGNED_OUT") queryClient.clear();
         else queryClient.invalidateQueries({ queryKey: ["player"] });
       }
     });
@@ -38,9 +38,10 @@ export function usePlayer(userId: string | undefined) {
     enabled: !!userId,
     refetchInterval: 15_000,
     queryFn: async () => {
+      if (!userId) throw new Error("Sign in required");
       const [{ data: profile }, { data: roles }] = await Promise.all([
-        supabase.from("profiles").select("username, balance").eq("id", userId!).maybeSingle(),
-        supabase.from("user_roles").select("role").eq("user_id", userId!),
+        supabase.from("profiles").select("username, balance").eq("id", userId).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", userId),
       ]);
       return {
         username: profile?.username ?? "",
