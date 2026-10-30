@@ -246,8 +246,8 @@ export const adminStats = createServerFn({ method: "GET" }).handler(async () => 
 export const adminLimits = createServerFn({ method: "GET" }).handler(async () => {
   const { requireAdmin } = await import("./auth.server");
   await requireAdmin();
-  if (!slotegratorConfig()) return { ok: false as const, error: "Slotegrator settings are missing in .env", body: null };
+  if (!slotegratorConfig()) return { ok: false as const, error: "Slotegrator settings are missing in .env", json: "" };
   const res = await slotegratorRequest("GET", "/limits");
-  if (!res.ok) return { ok: false as const, error: detail("GET /limits failed", res), body: null };
-  return { ok: true as const, error: null, body: JSON.parse(JSON.stringify(res.body ?? null)) as unknown as string };
+  if (!res.ok) return { ok: false as const, error: detail("GET /limits failed", res), json: "" };
+  return { ok: true as const, error: null, json: JSON.stringify(res.body ?? null) };
 });
