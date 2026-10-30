@@ -5,6 +5,6 @@
 - [x] Admin setup code is read from ADMIN_SETUP_CODE in the server .env.
 - [ ] Real game launch test: waiting on Slotegrator whitelisting the VPS IP and real secret values (preview has placeholders).
 - [ ] Become first admin: waiting for the user to register on the VPS and enter their ADMIN_SETUP_CODE at /admin.
-- [ ] Game shows balance 0 while the player's account has money: log every Slotegrator callback + admin "Test callback" button.
-- [ ] Admin: show total player balance, total bets/wins/GGR, and a per-provider breakdown (plus Slotegrator limits) in a clean dashboard.
-- [ ] Admin top: Slotegrator API (merchant) balance per provider + total, from GET /limits.
+- [x] Game shows balance 0 while the player's account has money: log every Slotegrator callback + admin "Test callback" button.
+- [x] Admin: show total player balance, total bets/wins/GGR, and a per-provider breakdown (plus Slotegrator limits) in a clean dashboard.
+- [x] Admin top: Slotegrator API (merchant) balance per provider + total, from GET /limits.
