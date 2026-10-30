@@ -47,7 +47,8 @@ export function SiteHeader({ authOpen, setAuthOpen }: { authOpen: boolean; setAu
               onClick={async () => {
                 await client.cancelQueries();
                 await doLogout();
-                client.clear();
+                client.setQueryData(["player"], null);
+                client.removeQueries({ predicate: (q) => q.queryKey[0] !== "player" && q.queryKey[0] !== "games" && q.queryKey[0] !== "config" });
                 await router.navigate({ to: "/", replace: true });
               }}
             >
