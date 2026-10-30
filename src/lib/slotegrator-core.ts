@@ -1,6 +1,4 @@
 // Server-only helpers. Read secrets from process.env inside functions; never import from components.
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { buildSignString, hmacSha1Hex } from "./slotegrator-shared";
 
 export function slotegratorConfig() {
@@ -59,28 +57,4 @@ export async function slotegratorRequest(
   } catch (e) {
     return { ok: false, status: 0, body: { error: "network", message: String(e) } as unknown };
   }
-}
-
-/** Publishable-key client for calling secret-protected wallet functions from the server. */
-export function walletDb() {
-  const url = process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"];
-  const key = process.env["SUPABASE_PUBLISHABLE_KEY"] || process.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
-  if (!url || !key) throw new Error("Database settings missing");
-  return createClient<Database>(url, key, {
-    global: {
-      fetch: (input, init) => {
-        const h = new Headers(init?.headers);
-        if (key.startsWith("sb_") && h.get("Authorization") === `Bearer ${key}`) h.delete("Authorization");
-        h.set("apikey", key);
-        return fetch(input, { ...init, headers: h });
-      },
-    },
-    auth: { storage: undefined, persistSession: false, autoRefreshToken: false },
-  });
-}
-
-export function walletSecret() {
-  const s = process.env["WALLET_RPC_SECRET"];
-  if (!s) throw new Error("WALLET_RPC_SECRET missing");
-  return s;
 }
