@@ -24,6 +24,10 @@ export const listGames = createServerFn({ method: "GET" })
       return { ok: false as const, error: detail("GET /games failed", res), games: [], pageCount: 0, total: 0 };
     }
     const body = res.body as { items?: SlotegratorGame[]; _meta?: { pageCount?: number; totalCount?: number } };
+    if (body.items?.length) {
+      const { rememberGames } = await import("./filedb.server");
+      await rememberGames(body.items);
+    }
     return {
       ok: true as const,
       error: null,
@@ -226,4 +230,24 @@ export const adminCallbackTest = createServerFn({ method: "POST" }).handler(asyn
   } catch (e) {
     return { ok: false, detail: `POST ${url}\nNetwork error: ${(e as Error).message}\nThe server could not reach its own public address. Slotegrator will not reach it either.` };
   }
+});
+
+// ---------- Admin dashboard ----------
+export const adminStats = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireAdmin } = await import("./auth.server");
+  const { readDb, readGames } = await import("./filedb.server");
+  const { summarize } = await import("./admin-stats");
+  await requireAdmin();
+  const [db, games] = await Promise.all([readDb(), readGames()]);
+  return { ...summarize(db.users, db.transactions, games), knownGames: Object.keys(games).length };
+});
+
+/** Slotegrator merchant limits/balance (GET /limits), parsed for display. */
+export const adminLimits = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireAdmin } = await import("./auth.server");
+  await requireAdmin();
+  if (!slotegratorConfig()) return { ok: false as const, error: "Slotegrator settings are missing in .env", body: null };
+  const res = await slotegratorRequest("GET", "/limits");
+  if (!res.ok) return { ok: false as const, error: detail("GET /limits failed", res), body: null };
+  return { ok: true as const, error: null, body: JSON.parse(JSON.stringify(res.body ?? null)) as unknown as string };
 });

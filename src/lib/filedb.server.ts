@@ -115,3 +115,38 @@ export async function readCallbackLog(limit = 50): Promise<Record<string, unknow
     throw e;
   }
 }
+
+// ---------- Game catalog (data/games.json): game uuid -> name/provider, filled from Slotegrator /games ----------
+export type GameMeta = { name: string; provider: string };
+export function gamesFile() {
+  return path.join(dataDir(), "games.json");
+}
+export async function readGames(): Promise<Record<string, GameMeta>> {
+  try {
+    return JSON.parse(await readFile(gamesFile(), "utf8")) as Record<string, GameMeta>;
+  } catch {
+    return {};
+  }
+}
+export function rememberGames(items: { uuid: string; name?: string; provider?: string }[]) {
+  const p = queue.then(async () => {
+    const map = await readGames();
+    let changed = false;
+    for (const g of items) {
+      if (!g.uuid) continue;
+      const meta = { name: g.name ?? "", provider: g.provider ?? "" };
+      const old = map[g.uuid];
+      if (!old || old.name !== meta.name || old.provider !== meta.provider) {
+        map[g.uuid] = meta;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    await mkdir(dataDir(), { recursive: true });
+    const tmp = `${gamesFile()}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(map), "utf8");
+    await rename(tmp, gamesFile());
+  });
+  queue = p.catch(() => undefined);
+  return p.catch((e) => console.error("Could not save game catalog", e));
+}
