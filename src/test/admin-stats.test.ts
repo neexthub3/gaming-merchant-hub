@@ -25,3 +25,22 @@ describe("admin dashboard totals", () => {
     expect(s.bets).toBe(0);
   });
 });
+
+import { parseApiBalances } from "@/lib/admin-stats";
+describe("Slotegrator API balance", () => {
+  it("adds up each provider's balance per currency", () => {
+    const r = parseApiBalances([
+      { provider: "Pragmatic", currency: "BDT", balance: "1000.50", limit: 5000 },
+      { provider: "Spribe", currency: "BDT", balance: 250, limit: "2000" },
+      { provider: "Evolution", currency: "USD", balance: 10 },
+    ]);
+    expect(r.rows).toHaveLength(3);
+    expect(r.totals["BDT"]).toEqual({ balance: 1250.5, limit: 7000 });
+    expect(r.totals["USD"]).toEqual({ balance: 10 });
+  });
+  it("reads a provider-keyed object", () => {
+    const r = parseApiBalances({ Pragmatic: { balance: 5 }, Spribe: { balance: 7 } });
+    expect(r.rows.map((x) => x.provider)).toEqual(["Pragmatic", "Spribe"]);
+    expect(r.totals[""]).toEqual({ balance: 12 });
+  });
+});

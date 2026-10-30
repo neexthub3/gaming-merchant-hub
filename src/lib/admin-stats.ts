@@ -56,3 +56,50 @@ export function summarize(
     providers,
   };
 }
+
+// ---------- Slotegrator API balance (GET /limits) ----------
+export type ApiBalanceRow = { provider: string; currency: string; values: Record<string, number>; text: Record<string, string> };
+
+const NAME_KEYS = ["provider", "provider_name", "name", "title", "game_provider", "aggregator"];
+const CURRENCY_KEYS = ["currency", "currency_code"];
+
+function toNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim())) return Number(v);
+  return null;
+}
+
+/** Accepts the /limits body in any common shape: array, {items:[...]}, {data:[...]} or {Provider: {...}}. */
+export function parseApiBalances(body: unknown) {
+  let list: Record<string, unknown>[] = [];
+  if (Array.isArray(body)) list = body as Record<string, unknown>[];
+  else if (body && typeof body === "object") {
+    const o = body as Record<string, unknown>;
+    const inner = [o["items"], o["data"], o["limits"]].find(Array.isArray) as Record<string, unknown>[] | undefined;
+    if (inner) list = inner;
+    else if (Object.values(o).every((v) => v && typeof v === "object" && !Array.isArray(v))) {
+      list = Object.entries(o).map(([k, v]) => ({ provider: k, ...(v as Record<string, unknown>) }));
+    } else list = [o];
+  }
+  const rows: ApiBalanceRow[] = list
+    .filter((r) => r && typeof r === "object")
+    .map((r) => {
+      const nameKey = NAME_KEYS.find((k) => typeof r[k] === "string");
+      const curKey = CURRENCY_KEYS.find((k) => typeof r[k] === "string");
+      const values: Record<string, number> = {};
+      const text: Record<string, string> = {};
+      for (const [k, v] of Object.entries(r)) {
+        if (k === nameKey || k === curKey) continue;
+        const n = toNumber(v);
+        if (n !== null && !/(^id$|_id$|time|date|updated|created)/i.test(k)) values[k] = n;
+        else if (v !== null && v !== undefined) text[k] = typeof v === "object" ? JSON.stringify(v) : String(v);
+      }
+      return { provider: nameKey ? String(r[nameKey]) : "Merchant", currency: curKey ? String(r[curKey]) : "", values, text };
+    });
+  const totals: Record<string, Record<string, number>> = {};
+  for (const r of rows) {
+    const t = (totals[r.currency] ??= {});
+    for (const [k, v] of Object.entries(r.values)) t[k] = r2((t[k] ?? 0) + v);
+  }
+  return { rows, totals };
+}

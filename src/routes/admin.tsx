@@ -2,11 +2,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Loader2, Plus, Minus, ShieldCheck, Search, Wallet, TrendingUp, Coins, Trophy, Users, Gamepad2, RefreshCw } from "lucide-react";
+import { Loader2, Plus, Minus, ShieldCheck, Search, Wallet, TrendingUp, Coins, Trophy, Users, Gamepad2, RefreshCw, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { usePlayer } from "@/hooks/use-player";
 import { SiteHeader, useCurrency, formatMoney } from "@/components/SiteHeader";
 import { ErrorDetails, errorText } from "@/components/ErrorDetails";
+import { parseApiBalances } from "@/lib/admin-stats";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +48,7 @@ function AdminPage() {
           <Button variant="gold" onClick={() => setAuthOpen(true)}>Sign in</Button>
         ) : player.isAdmin ? (
           <>
+            <ApiBalance />
             <Dashboard />
             <BalancePanel />
             <StorageInfo />
@@ -350,7 +352,7 @@ function Dashboard() {
   return (
     <section className="space-y-5">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="font-display text-2xl text-gold">Overview</h2>
+        <h2 className="font-display text-2xl text-gold">Site overview (player wallets)</h2>
         <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
           <RefreshCw className={isFetching ? "animate-spin" : ""} /> Refresh
         </Button>
@@ -410,36 +412,77 @@ function Dashboard() {
           </div>
         )}
       </div>
-      <ProviderLimits />
     </section>
   );
 }
 
-function ProviderLimits() {
+function ApiBalance() {
   const limits = useServerFn(adminLimits);
-  const { data, error, refetch, isFetching } = useQuery({ queryKey: ["admin-limits"], queryFn: () => limits(), staleTime: 60_000 });
-  const parsed: unknown = data?.ok ? JSON.parse(data.json) : null;
+  const { data, error, refetch, isFetching, dataUpdatedAt } = useQuery({ queryKey: ["admin-limits"], queryFn: () => limits(), refetchInterval: 60_000 });
+  const [showRaw, setShowRaw] = useState(false);
+  const parsed = data?.ok ? parseApiBalances(JSON.parse(data.json)) : null;
+  const label = (k: string) => k.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+  const num = (n: number, cur: string) => `${n.toLocaleString("bn-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${cur ? ` ${cur}` : ""}`;
   return (
-    <div className="rounded-xl border bg-card p-5">
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <section className="space-y-4 rounded-2xl border border-primary/40 bg-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="text-lg font-semibold">Slotegrator merchant balance and limits</h3>
-          <p className="text-xs text-muted-foreground">Live from Slotegrator (works only from your whitelisted server).</p>
+          <h2 className="flex items-center gap-2 font-display text-2xl text-gold"><Landmark className="size-5" /> Slotegrator API balance</h2>
+          <p className="text-xs text-muted-foreground">
+            Live from Slotegrator (GET /limits){dataUpdatedAt ? ` · updated ${new Date(dataUpdatedAt).toLocaleTimeString()}` : ""}. Works only from your whitelisted server.
+          </p>
         </div>
-        <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
-          <RefreshCw className={isFetching ? "animate-spin" : ""} /> Refresh
-        </Button>
+        <div className="flex gap-2">
+          {data?.ok && (
+            <Button variant="outline" size="sm" onClick={() => setShowRaw((v) => !v)}>{showRaw ? "Hide raw" : "Raw reply"}</Button>
+          )}
+          <Button variant="outline" size="sm" disabled={isFetching} onClick={() => refetch()}>
+            <RefreshCw className={isFetching ? "animate-spin" : ""} /> Refresh
+          </Button>
+        </div>
       </div>
       {error ? (
-        <ErrorDetails title="Limits request failed" detail={errorText(error)} />
+        <ErrorDetails title="API balance request failed" detail={errorText(error)} />
       ) : !data ? (
-        <Loader2 className="animate-spin" aria-label="Loading" />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />)}</div>
       ) : !data.ok ? (
-        <ErrorDetails title="Slotegrator limits not available" detail={data.error ?? ""} />
-      ) : (
-        <DataView value={parsed} />
-      )}
-    </div>
+        <ErrorDetails title="Slotegrator API balance not available" detail={data.error ?? ""} />
+      ) : parsed && parsed.rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Slotegrator returned no balances.</p>
+      ) : parsed ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            {Object.entries(parsed.totals).flatMap(([cur, vals]) =>
+              Object.entries(vals).map(([k, v]) => (
+                <div key={`${cur}-${k}`} className="rounded-xl bg-primary/10 p-4">
+                  <div className="text-xs text-muted-foreground">Total {label(k).toLowerCase()}</div>
+                  <div className="mt-1 text-xl font-semibold tabular-nums text-gold">{num(v, cur)}</div>
+                </div>
+              )),
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {parsed.rows.map((r, i) => (
+              <div key={`${r.provider}-${i}`} className="rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold">{r.provider}</span>
+                  {r.currency && <span className="rounded bg-muted px-2 py-0.5 text-xs">{r.currency}</span>}
+                </div>
+                <dl className="mt-2 space-y-1 text-sm">
+                  {Object.entries(r.values).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-2"><dt className="text-muted-foreground">{label(k)}</dt><dd className="font-medium tabular-nums">{num(v, r.currency)}</dd></div>
+                  ))}
+                  {Object.entries(r.text).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-2"><dt className="text-muted-foreground">{label(k)}</dt><dd className="break-all text-right">{v}</dd></div>
+                  ))}
+                </dl>
+              </div>
+            ))}
+          </div>
+          {showRaw && <DataView value={JSON.parse(data.json)} />}
+        </>
+      ) : null}
+    </section>
   );
 }
 
