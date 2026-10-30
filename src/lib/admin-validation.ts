@@ -10,8 +10,3 @@ export const balanceAdjustmentSchema = z.object({
 export function signedAdjustment(input: z.infer<typeof balanceAdjustmentSchema>) {
   return input.direction === "subtract" ? -input.amount : input.amount;
 }
-
-export async function requireAdminRole(check: () => PromiseLike<{ data: unknown; error: unknown }>) {
-  const { data, error } = await check();
-  if (error || data !== true) throw new Error("Forbidden");
-}
