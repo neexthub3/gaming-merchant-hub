@@ -12,3 +12,5 @@
 ## Project rules
 - Slotegrator calls are signed (HMAC-SHA1 over sorted params + auth headers) inside `createServerFn` handlers in `src/lib/slotegrator.functions.ts`; the merchant key must never reach the browser.
 - Signing helpers use Web Crypto (`crypto.subtle`), not Node `crypto`, because server code runs on Workers.
+- Administrator balance operations use authenticated server functions and role-checked atomic database functions; client role display never authorizes a write.
+- First administrator bootstrap is service-role-only, serialized in the database, and called only after a strong server setup code is verified; no fixed administrator credentials are embedded.

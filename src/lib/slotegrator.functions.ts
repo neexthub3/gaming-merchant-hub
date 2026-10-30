@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { SlotegratorGame } from "./slotegrator-shared";
 import { safeEqual } from "./slotegrator-shared";
 import { slotegratorConfig, slotegratorRequest, walletDb, walletSecret } from "./slotegrator-core";
+import { balanceAdjustmentSchema, signedAdjustment, requireAdminRole } from "./admin-validation";
 
 export const getPublicConfig = createServerFn({ method: "GET" }).handler(async () => {
   return { currency: process.env["SLOTEGRATOR_CURRENCY"] || "USD" };
@@ -94,11 +95,10 @@ async function assertAdmin(context: {
   supabase: ReturnType<typeof walletDb>;
   userId: string;
 }) {
-  const { data } = await context.supabase.rpc("has_role", {
+  await requireAdminRole(() => context.supabase.rpc("has_role", {
     _user_id: context.userId,
     _role: "admin",
-  });
-  if (!data) throw new Error("Forbidden");
+  }));
 }
 
 /** First-time admin setup: a signed-in user enters the server-side setup code once. */
@@ -109,9 +109,9 @@ export const claimAdmin = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const expected = process.env["ADMIN_SETUP_CODE"];
-    if (!expected || !safeEqual(data.code, expected)) return { ok: false as const };
-    const { error } = await walletDb().rpc("claim_admin", {
-      p_secret: walletSecret(),
+    if (!expected || expected.length < 12 || !safeEqual(data.code, expected)) return { ok: false as const };
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.rpc("claim_first_admin", {
       p_user: context.userId,
     });
     if (error) {
@@ -119,6 +119,28 @@ export const claimAdmin = createServerFn({ method: "POST" })
       return { ok: false as const };
     }
     return { ok: true as const };
+  });
+
+export const adminPlayers = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { search: string }) => z.object({ search: z.string().trim().max(100) }).parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { data: players, error } = await context.supabase.rpc("admin_players", { p_search: data.search });
+    if (error) throw new Error("Player list is unavailable");
+    return players ?? [];
+  });
+
+export const adminAdjustBalance = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => balanceAdjustmentSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context);
+    const { data: balance, error } = await context.supabase.rpc("admin_adjust_balance", {
+      p_player: data.playerId, p_amount: signedAdjustment(data), p_note: data.note,
+    });
+    if (error) throw new Error("Balance change was rejected. Check the available balance and try again.");
+    return { balance: Number(balance) };
   });
 
 /** Admin-only live checks against the Slotegrator API. */
