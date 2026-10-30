@@ -8,7 +8,8 @@ import heroImg from "@/assets/hero.jpg";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SiteHeader } from "@/components/SiteHeader";
-import { initDemo, listGames } from "@/lib/slotegrator.functions";
+import { initDemo, initReal, listGames } from "@/lib/slotegrator.functions";
+import { useSession } from "@/hooks/use-player";
 import type { SlotegratorGame } from "@/lib/slotegrator-shared";
 
 const gamesQuery = (page: number) =>
@@ -41,6 +42,29 @@ function Index() {
   const [launching, setLaunching] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const startDemo = useServerFn(initDemo);
+  const startReal = useServerFn(initReal);
+  const { session } = useSession();
+
+  async function playReal(game: SlotegratorGame) {
+    if (!session) {
+      setAuthOpen(true);
+      return;
+    }
+    setLaunching(game.uuid);
+    setLaunchError(null);
+    try {
+      const res = await startReal({
+        data: { gameUuid: game.uuid, returnUrl: window.location.href, mobile: window.innerWidth < 768 },
+      });
+      if (res.ok && res.url) setPlaying({ name: game.name, url: res.url });
+      else if (res.error === "no_balance") setLaunchError("আপনার ব্যালেন্স নেই। অ্যাডমিনের কাছ থেকে ব্যালেন্স নিন।");
+      else setLaunchError("এই গেমটি এখন আসল টাকায় চালু করা যাচ্ছে না।");
+    } catch {
+      setLaunchError("এই গেমটি এখন আসল টাকায় চালু করা যাচ্ছে না।");
+    } finally {
+      setLaunching(null);
+    }
+  }
 
   const { data, isLoading } = useQuery(gamesQuery(page));
   const games = data?.games ?? [];
@@ -164,6 +188,7 @@ function Index() {
                 game={g}
                 loading={launching === g.uuid}
                 onPlay={() => play(g)}
+                onReal={() => playReal(g)}
               />
             ))}
           </Grid>
@@ -252,10 +277,12 @@ function GameCard({
   game,
   loading,
   onPlay,
+  onReal,
 }: {
   game: SlotegratorGame;
   loading: boolean;
   onPlay: () => void;
+  onReal: () => void;
 }) {
   return (
     <div className="group relative aspect-[3/4] overflow-hidden rounded-xl border bg-card transition-all hover:-translate-y-1 hover:border-primary/60 hover:shadow-gold">
@@ -276,10 +303,13 @@ function GameCard({
         <p className="truncate text-sm font-semibold">{game.name}</p>
         {game.provider && <p className="truncate text-xs text-muted-foreground">{game.provider}</p>}
       </div>
-      <div className="absolute inset-0 flex items-center justify-center bg-overlay opacity-0 transition-opacity group-hover:opacity-100">
-        <Button variant="gold" onClick={onPlay} disabled={loading}>
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-overlay opacity-0 transition-opacity group-hover:opacity-100">
+        <Button variant="gold" onClick={onReal} disabled={loading}>
           {loading ? <Loader2 className="animate-spin" /> : <Play />}
-          ডেমো খেলুন
+          আসল খেলুন
+        </Button>
+        <Button variant="outline" size="sm" onClick={onPlay} disabled={loading}>
+          ডেমো
         </Button>
       </div>
     </div>

@@ -35,7 +35,7 @@ function AdminPage() {
       <div className="flex items-center gap-3"><ShieldCheck className="text-primary" /><h1 className="font-display text-3xl text-gold">Administrator</h1></div>
       {!ready || (session && isPending) ? <Loader2 className="animate-spin" aria-label="Loading" /> : !session ?
         <Button variant="gold" onClick={() => setAuthOpen(true)}>Sign in</Button> : player?.isAdmin ?
-        <BalancePanel /> : <AdminSetup />}
+        <><CallbackUrl /><BalancePanel /></> : <AdminSetup />}
       <Link to="/" className="inline-block text-sm text-muted-foreground">Back to games</Link>
     </main>
   </div>;
