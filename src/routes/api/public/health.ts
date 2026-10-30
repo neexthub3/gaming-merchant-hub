@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { safeEqual } from "@/lib/slotegrator-shared";
-import { slotegratorConfig, slotegratorRequest, walletDb } from "@/lib/slotegrator-core";
+import { slotegratorConfig, slotegratorRequest } from "@/lib/slotegrator-core";
 
 // GET /api/public/health → {"ok":true}
-// Full check (used by deploy.sh): send header "x-admin-code: <ADMIN_SETUP_CODE>".
+// Full check: send header "x-admin-code: <ADMIN_SETUP_CODE>".
 export const Route = createFileRoute("/api/public/health")({
   server: {
     handlers: {
@@ -14,19 +14,14 @@ export const Route = createFileRoute("/api/public/health")({
           return Response.json({ ok: true, time: new Date().toISOString() });
         }
 
-        const env = {
-          SLOTEGRATOR: !!slotegratorConfig(),
-          WALLET_RPC_SECRET: !!process.env["WALLET_RPC_SECRET"],
-          DATABASE: !!(process.env["SUPABASE_URL"] || process.env["VITE_SUPABASE_URL"]),
-        };
-
         let database = "fail";
+        let dbPath = "";
         try {
-          const { data, error } = await walletDb().rpc("wallet_balance", {
-            p_secret: process.env["WALLET_RPC_SECRET"] ?? "",
-            p_player: "00000000-0000-0000-0000-000000000000",
-          });
-          database = error ? `fail: ${error.message}` : (data as { error?: string })?.error === "PLAYER_NOT_FOUND" ? "ok" : "unexpected";
+          const { dbFile, readDb, withDb } = await import("@/lib/filedb.server");
+          dbPath = dbFile();
+          await withDb(() => undefined); // proves the folder is writable
+          const db = await readDb();
+          database = `ok (${db.users.length} players)`;
         } catch (e) {
           database = `fail: ${String(e)}`;
         }
@@ -42,14 +37,16 @@ export const Route = createFileRoute("/api/public/health")({
         const gamesCount = games.ok ? ((games.body as { items?: unknown[] }).items?.length ?? 0) : 0;
 
         return Response.json({
-          ok: env.SLOTEGRATOR && env.WALLET_RPC_SECRET && database === "ok" && games.ok,
-          env,
+          ok: !!slotegratorConfig() && database.startsWith("ok") && games.ok,
+          slotegratorConfigured: !!slotegratorConfig(),
           database,
+          dbPath,
           serverIp,
           slotegrator: {
             status: games.status,
             ok: games.ok,
             gamesOnFirstPage: gamesCount,
+            response: games.ok ? undefined : games.body,
             hint: games.ok
               ? "Slotegrator API works"
               : games.status === 406 || games.status === 403

@@ -1,9 +1,12 @@
 import { useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useQueryClient } from "@tanstack/react-query";
 import { Copy, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
-import { supabase } from "@/integrations/supabase/client";
-import { randomCredentials, usernameToEmail } from "@/hooks/use-player";
+import { randomCredentials } from "@/hooks/use-player";
+import { login, register } from "@/lib/slotegrator.functions";
+import { ErrorDetails, errorText } from "@/components/ErrorDetails";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,13 +15,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
-function authErrorText(message: string) {
-  const m = message.toLowerCase();
-  if (m.includes("already registered") || m.includes("database error")) return "এই নামটি আগেই নেওয়া হয়েছে।";
-  if (m.includes("invalid login")) return "নাম বা পাসওয়ার্ড ভুল।";
-  if (m.includes("pwned") || m.includes("weak") || m.includes("password"))
-    return "পাসওয়ার্ডটি দুর্বল — অন্য একটি দিন (কমপক্ষে ৮ অক্ষর)।";
-  return "কিছু একটা সমস্যা হয়েছে, আবার চেষ্টা করুন।";
+function authErrorTitle(code: string) {
+  if (code === "USERNAME_TAKEN") return "এই নামটি আগেই নেওয়া হয়েছে।";
+  if (code === "INVALID_LOGIN") return "নাম বা পাসওয়ার্ড ভুল।";
+  return "সাইন-ইন করা যায়নি।";
 }
 
 export function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
@@ -26,52 +26,50 @@ export function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const [created, setCreated] = useState<{ username: string; password: string } | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<{ title: string; detail: string } | null>(null);
+  const doRegister = useServerFn(register);
+  const doLogin = useServerFn(login);
+  const client = useQueryClient();
 
-  async function register(u: string, p: string) {
-    const { error } = await supabase.auth.signUp({
-      email: usernameToEmail(u),
-      password: p,
-      options: { data: { username: u } },
-    });
-    if (error) throw error;
-  }
-
-  async function oneClick() {
+  async function run(fn: () => Promise<{ ok: boolean; error: string | null }>) {
     setBusy(true);
+    setError(null);
     try {
-      const creds = randomCredentials();
-      await register(creds.username, creds.password);
-      setCreated(creds);
+      const res = await fn();
+      if (!res.ok) {
+        setError({ title: authErrorTitle(res.error ?? ""), detail: res.error ?? "Unknown error" });
+        return false;
+      }
+      await client.invalidateQueries({ queryKey: ["player"] });
+      return true;
     } catch (e) {
-      toast.error(authErrorText((e as Error).message));
+      setError({ title: "সার্ভারে সমস্যা হয়েছে", detail: errorText(e) });
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function oneClick() {
+    const creds = randomCredentials();
+    if (await run(() => doRegister({ data: creds }))) setCreated(creds);
   }
 
   async function submit(mode: "login" | "register") {
     const u = username.trim().toLowerCase();
     if (!USERNAME_RE.test(u)) {
-      toast.error("নাম ৩–২০ অক্ষরের হতে হবে (a-z, 0-9, _)।");
+      setError({ title: "নাম ঠিক নেই", detail: "নাম ৩–২০ অক্ষরের হতে হবে (a-z, 0-9, _)।" });
       return;
     }
     if (password.length < 8) {
-      toast.error("পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।");
+      setError({ title: "পাসওয়ার্ড ছোট", detail: "পাসওয়ার্ড কমপক্ষে ৮ অক্ষরের হতে হবে।" });
       return;
     }
-    setBusy(true);
-    try {
-      if (mode === "register") await register(u, password);
-      else {
-        const { error } = await supabase.auth.signInWithPassword({ email: usernameToEmail(u), password });
-        if (error) throw error;
-      }
+    const data = { username: u, password };
+    const ok = await run(() => (mode === "register" ? doRegister({ data }) : doLogin({ data })));
+    if (ok) {
       toast.success(mode === "register" ? "অ্যাকাউন্ট তৈরি হয়েছে!" : "স্বাগতম!");
       onOpenChange(false);
-    } catch (e) {
-      toast.error(authErrorText((e as Error).message));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -79,7 +77,10 @@ export function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (!o) setCreated(null);
+        if (!o) {
+          setCreated(null);
+          setError(null);
+        }
         onOpenChange(o);
       }}
     >
@@ -113,57 +114,53 @@ export function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange
             </Button>
           </div>
         ) : (
-          <Tabs defaultValue="quick">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="quick">এক ক্লিকে</TabsTrigger>
-              <TabsTrigger value="login">লগইন</TabsTrigger>
-              <TabsTrigger value="register">রেজিস্টার</TabsTrigger>
-            </TabsList>
-            <TabsContent value="quick" className="space-y-4 pt-4">
-              <p className="text-sm text-muted-foreground">
-                এক ক্লিকেই অ্যাকাউন্ট — নাম ও পাসওয়ার্ড আমরা বানিয়ে দেব।
-              </p>
-              <Button variant="gold" className="w-full" size="lg" onClick={oneClick} disabled={busy}>
-                {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                এক ক্লিকে রেজিস্টার
-              </Button>
-            </TabsContent>
-            {(["login", "register"] as const).map((mode) => (
-              <TabsContent key={mode} value={mode} className="space-y-4 pt-4">
-                <form
-                  className="space-y-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    submit(mode);
-                  }}
-                >
-                  <div className="space-y-2">
-                    <Label htmlFor={`${mode}-u`}>ইউজারনেম</Label>
-                    <Input
-                      id={`${mode}-u`}
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      autoComplete="username"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`${mode}-p`}>পাসওয়ার্ড</Label>
-                    <Input
-                      id={`${mode}-p`}
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete={mode === "login" ? "current-password" : "new-password"}
-                    />
-                  </div>
-                  <Button type="submit" variant="gold" className="w-full" disabled={busy}>
-                    {busy && <Loader2 className="animate-spin" />}
-                    {mode === "login" ? "লগইন" : "অ্যাকাউন্ট খুলুন"}
-                  </Button>
-                </form>
+          <>
+            {error && <ErrorDetails title={error.title} detail={error.detail} onClose={() => setError(null)} />}
+            <Tabs defaultValue="quick" onValueChange={() => setError(null)}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="quick">এক ক্লিকে</TabsTrigger>
+                <TabsTrigger value="login">লগইন</TabsTrigger>
+                <TabsTrigger value="register">রেজিস্টার</TabsTrigger>
+              </TabsList>
+              <TabsContent value="quick" className="space-y-4 pt-4">
+                <p className="text-sm text-muted-foreground">এক ক্লিকেই অ্যাকাউন্ট — নাম ও পাসওয়ার্ড আমরা বানিয়ে দেব।</p>
+                <Button variant="gold" className="w-full" size="lg" onClick={oneClick} disabled={busy}>
+                  {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                  এক ক্লিকে রেজিস্টার
+                </Button>
               </TabsContent>
-            ))}
-          </Tabs>
+              {(["login", "register"] as const).map((mode) => (
+                <TabsContent key={mode} value={mode} className="space-y-4 pt-4">
+                  <form
+                    className="space-y-4"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      submit(mode);
+                    }}
+                  >
+                    <div className="space-y-2">
+                      <Label htmlFor={`${mode}-u`}>ইউজারনেম</Label>
+                      <Input id={`${mode}-u`} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor={`${mode}-p`}>পাসওয়ার্ড</Label>
+                      <Input
+                        id={`${mode}-p`}
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete={mode === "login" ? "current-password" : "new-password"}
+                      />
+                    </div>
+                    <Button type="submit" variant="gold" className="w-full" disabled={busy}>
+                      {busy && <Loader2 className="animate-spin" />}
+                      {mode === "login" ? "লগইন" : "অ্যাকাউন্ট খুলুন"}
+                    </Button>
+                  </form>
+                </TabsContent>
+              ))}
+            </Tabs>
+          </>
         )}
       </DialogContent>
     </Dialog>
