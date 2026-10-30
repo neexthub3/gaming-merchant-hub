@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Plus, Minus, ShieldCheck, Search } from "lucide-react";
 import { toast } from "sonner";
 import { usePlayer, useSession } from "@/hooks/use-player";
