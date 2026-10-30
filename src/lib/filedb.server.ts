@@ -1,6 +1,6 @@
 // JSON file database stored inside the project folder on the VPS.
 // Location: $DATA_DIR/db.json, default <project root>/data/db.json (project root = process.cwd()).
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type User = {
@@ -77,3 +77,41 @@ export function withDb<T>(fn: (db: Db) => T | Promise<T>): Promise<T> {
 }
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// ---------- Slotegrator callback log (data/callbacks.log, one JSON per line) ----------
+export function callbackLogFile() {
+  return path.join(dataDir(), "callbacks.log");
+}
+
+export async function logCallback(entry: Record<string, unknown>) {
+  try {
+    await mkdir(dataDir(), { recursive: true });
+    await appendFile(callbackLogFile(), JSON.stringify({ time: new Date().toISOString(), ...entry }) + "\n", "utf8");
+    const s = await stat(callbackLogFile());
+    if (s.size > 2_000_000) {
+      const lines = (await readFile(callbackLogFile(), "utf8")).trim().split("\n").slice(-1000);
+      await writeFile(callbackLogFile(), lines.join("\n") + "\n", "utf8");
+    }
+  } catch (e) {
+    console.error("Could not write callback log", e);
+  }
+}
+
+export async function readCallbackLog(limit = 50): Promise<Record<string, unknown>[]> {
+  try {
+    const lines = (await readFile(callbackLogFile(), "utf8")).trim().split("\n").filter(Boolean);
+    return lines
+      .slice(-limit)
+      .reverse()
+      .map((l) => {
+        try {
+          return JSON.parse(l) as Record<string, unknown>;
+        } catch {
+          return { raw: l };
+        }
+      });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
+  }
+}
