@@ -110,3 +110,16 @@ function BalancePanel() {
     </DialogContent></Dialog>
   </section>;
 }
+/** Shows the wallet callback address for whatever domain this site is opened on. */
+function CallbackUrl() {
+  const [url, setUrl] = useState("");
+  useEffect(() => setUrl(`${window.location.origin}/api/public/slotegrator/callback`), []);
+  return <section className="space-y-2 rounded-xl border bg-card p-5">
+    <h2 className="text-xl font-semibold">Slotegrator callback URL</h2>
+    <p className="text-sm text-muted-foreground">Give this address to Slotegrator. It follows your current domain automatically.</p>
+    <div className="flex gap-2">
+      <code className="flex-1 break-all rounded bg-muted px-3 py-2 text-sm">{url}</code>
+      <Button variant="outline" onClick={() => navigator.clipboard.writeText(url)}>Copy</Button>
+    </div>
+  </section>;
+}
