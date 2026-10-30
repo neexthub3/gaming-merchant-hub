@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SiteHeader } from "@/components/SiteHeader";
 import { initDemo, initReal, listGames } from "@/lib/slotegrator.functions";
-import { useSession } from "@/hooks/use-player";
+import { usePlayer } from "@/hooks/use-player";
+import { ErrorDetails, errorText } from "@/components/ErrorDetails";
 import type { SlotegratorGame } from "@/lib/slotegrator-shared";
 
 const gamesQuery = (page: number) =>
@@ -40,13 +41,13 @@ function Index() {
   const [provider, setProvider] = useState<string | null>(null);
   const [playing, setPlaying] = useState<{ name: string; url: string } | null>(null);
   const [launching, setLaunching] = useState<string | null>(null);
-  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<{ title: string; detail: string } | null>(null);
   const startDemo = useServerFn(initDemo);
   const startReal = useServerFn(initReal);
-  const { session } = useSession();
+  const { data: player } = usePlayer();
 
   async function playReal(game: SlotegratorGame) {
-    if (!session) {
+    if (!player) {
       setAuthOpen(true);
       return;
     }
@@ -57,16 +58,17 @@ function Index() {
         data: { gameUuid: game.uuid, returnUrl: window.location.href, mobile: window.innerWidth < 768 },
       });
       if (res.ok && res.url) setPlaying({ name: game.name, url: res.url });
-      else if (res.error === "no_balance") setLaunchError("আপনার ব্যালেন্স নেই। অ্যাডমিনের কাছ থেকে ব্যালেন্স নিন।");
-      else setLaunchError("এই গেমটি এখন আসল টাকায় চালু করা যাচ্ছে না।");
-    } catch {
-      setLaunchError("এই গেমটি এখন আসল টাকায় চালু করা যাচ্ছে না।");
+      else if (res.error === "no_balance")
+        setLaunchError({ title: "আপনার ব্যালেন্স নেই", detail: `Balance is 0. Ask the administrator to add balance.\nGame: ${game.name} (${game.uuid})` });
+      else setLaunchError({ title: `"${game.name}" আসল টাকায় চালু করা যায়নি`, detail: res.error ?? "Unknown error" });
+    } catch (e) {
+      setLaunchError({ title: `"${game.name}" আসল টাকায় চালু করা যায়নি`, detail: errorText(e) });
     } finally {
       setLaunching(null);
     }
   }
 
-  const { data, isLoading } = useQuery(gamesQuery(page));
+  const { data, isLoading, error: gamesError } = useQuery(gamesQuery(page));
   const games = data?.games ?? [];
 
   const providers = useMemo(
@@ -91,9 +93,9 @@ function Index() {
         },
       });
       if (res.ok && res.url) setPlaying({ name: game.name, url: res.url });
-      else setLaunchError("এই গেমটির ডেমো এখন চালু করা যাচ্ছে না।");
-    } catch {
-      setLaunchError("এই গেমটির ডেমো এখন চালু করা যাচ্ছে না।");
+      else setLaunchError({ title: `"${game.name}" ডেমো চালু করা যায়নি`, detail: res.error ?? "Unknown error" });
+    } catch (e) {
+      setLaunchError({ title: `"${game.name}" ডেমো চালু করা যায়নি`, detail: errorText(e) });
     } finally {
       setLaunching(null);
     }
@@ -159,8 +161,8 @@ function Index() {
         )}
 
         {launchError && (
-          <div className="mb-6 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
-            {launchError}
+          <div className="mb-6">
+            <ErrorDetails title={launchError.title} detail={launchError.detail} onClose={() => setLaunchError(null)} />
           </div>
         )}
 
@@ -171,13 +173,10 @@ function Index() {
             ))}
           </Grid>
         ) : !data?.ok ? (
-          <div className="rounded-2xl border bg-card px-6 py-16 text-center">
-            <p className="font-display text-xl text-gold">গেমগুলো আনা যাচ্ছে না</p>
-            <p className="mx-auto mt-3 max-w-lg text-muted-foreground">
-              Slotegrator এই মুহূর্তে সংযোগ গ্রহণ করছে না। সাধারণত তারা শুধু অনুমোদিত সার্ভার
-              থেকে আসা অনুরোধ মেনে নেয় — তাদের সাপোর্টের সাথে কথা বলে অনুমতি নিতে হবে।
-            </p>
-          </div>
+          <ErrorDetails
+            title="গেমগুলো আনা যাচ্ছে না"
+            detail={gamesError ? errorText(gamesError) : (data?.error ?? "Unknown error")}
+          />
         ) : filtered.length === 0 ? (
           <p className="py-16 text-center text-muted-foreground">কোনো গেম পাওয়া যায়নি।</p>
         ) : (
